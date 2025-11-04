@@ -1,6 +1,7 @@
 from collections import defaultdict
 from pathlib import Path
-import sqlite3
+# import sqlite3  <- 削除
+from st_supabase_connection import SupabaseConnection # <- 追加
 
 import streamlit as st
 import altair as alt
@@ -17,153 +18,112 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
 
+# connect_db() は st.connection に置き換えるため不要
+# def connect_db(): ...
 
-def connect_db():
-    """Connects to the sqlite database."""
-
-    DB_FILENAME = Path(__file__).parent / "inventory.db"
-    db_already_exists = DB_FILENAME.exists()
-
-    conn = sqlite3.connect(DB_FILENAME)
-    db_was_just_created = not db_already_exists
-
-    return conn, db_was_just_created
-
-
-def initialize_data(conn):
+def initialize_data(conn: SupabaseConnection):
     """Initializes the inventory table with some data."""
-    cursor = conn.cursor()
+    
+    # CREATE TABLE は Supabase ダッシュボードで実行するため、ここでは実行しない
+    
+    # Supabase Python client (conn.client) を使ってデータを挿入
+    data_to_insert = [
+        # Beverages
+        {'item_name': 'Bottled Water (500ml)', 'price': 1.50, 'units_sold': 115, 'units_left': 15, 'cost_price': 0.80, 'reorder_point': 16, 'description': 'Hydrating bottled water'},
+        {'item_name': 'Soda (355ml)', 'price': 2.00, 'units_sold': 93, 'units_left': 8, 'cost_price': 1.20, 'reorder_point': 10, 'description': 'Carbonated soft drink'},
+        {'item_name': 'Energy Drink (250ml)', 'price': 2.50, 'units_sold': 12, 'units_left': 18, 'cost_price': 1.50, 'reorder_point': 8, 'description': 'High-caffeine energy drink'},
+        {'item_name': 'Coffee (hot, large)', 'price': 2.75, 'units_sold': 11, 'units_left': 14, 'cost_price': 1.80, 'reorder_point': 5, 'description': 'Freshly brewed hot coffee'},
+        {'item_name': 'Juice (200ml)', 'price': 2.25, 'units_sold': 11, 'units_left': 9, 'cost_price': 1.30, 'reorder_point': 5, 'description': 'Fruit juice blend'},
 
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT,
-            price REAL,
-            units_sold INTEGER,
-            units_left INTEGER,
-            cost_price REAL,
-            reorder_point INTEGER,
-            description TEXT
-        )
-        """
-    )
+        # Snacks
+        {'item_name': 'Potato Chips (small)', 'price': 2.00, 'units_sold': 34, 'units_left': 16, 'cost_price': 1.00, 'reorder_point': 10, 'description': 'Salted and crispy potato chips'},
+        {'item_name': 'Candy Bar', 'price': 1.50, 'units_sold': 6, 'units_left': 19, 'cost_price': 0.80, 'reorder_point': 15, 'description': 'Chocolate and candy bar'},
+        {'item_name': 'Granola Bar', 'price': 2.25, 'units_sold': 3, 'units_left': 12, 'cost_price': 1.30, 'reorder_point': 8, 'description': 'Healthy and nutritious granola bar'},
+        {'item_name': 'Cookies (pack of 6)', 'price': 2.50, 'units_sold': 8, 'units_left': 8, 'cost_price': 1.50, 'reorder_point': 5, 'description': 'Soft and chewy cookies'},
+        {'item_name': 'Fruit Snack Pack', 'price': 1.75, 'units_sold': 5, 'units_left': 10, 'cost_price': 1.00, 'reorder_point': 8, 'description': 'Assortment of dried fruits and nuts'},
 
-    cursor.execute(
-        """
-        INSERT INTO inventory
-            (item_name, price, units_sold, units_left, cost_price, reorder_point, description)
-        VALUES
-            -- Beverages
-            ('Bottled Water (500ml)', 1.50, 115, 15, 0.80, 16, 'Hydrating bottled water'),
-            ('Soda (355ml)', 2.00, 93, 8, 1.20, 10, 'Carbonated soft drink'),
-            ('Energy Drink (250ml)', 2.50, 12, 18, 1.50, 8, 'High-caffeine energy drink'),
-            ('Coffee (hot, large)', 2.75, 11, 14, 1.80, 5, 'Freshly brewed hot coffee'),
-            ('Juice (200ml)', 2.25, 11, 9, 1.30, 5, 'Fruit juice blend'),
+        # Personal Care
+        {'item_name': 'Toothpaste', 'price': 3.50, 'units_sold': 1, 'units_left': 9, 'cost_price': 2.00, 'reorder_point': 5, 'description': 'Minty toothpaste for oral hygiene'},
+        {'item_name': 'Hand Sanitizer (small)', 'price': 2.00, 'units_sold': 2, 'units_left': 13, 'cost_price': 1.20, 'reorder_point': 8, 'description': 'Small sanitizer bottle for on-the-go'},
+        {'item_name': 'Pain Relievers (pack)', 'price': 5.00, 'units_sold': 1, 'units_left': 5, 'cost_price': 3.00, 'reorder_point': 3, 'description': 'Over-the-counter pain relief medication'},
+        {'item_name': 'Bandages (box)', 'price': 3.00, 'units_sold': 0, 'units_left': 10, 'cost_price': 2.00, 'reorder_point': 5, 'description': 'Box of adhesive bandages for minor cuts'},
+        {'item_name': 'Sunscreen (small)', 'price': 5.50, 'units_sold': 6, 'units_left': 5, 'cost_price': 3.50, 'reorder_point': 3, 'description': 'Small bottle of sunscreen for sun protection'},
 
-            -- Snacks
-            ('Potato Chips (small)', 2.00, 34, 16, 1.00, 10, 'Salted and crispy potato chips'),
-            ('Candy Bar', 1.50, 6, 19, 0.80, 15, 'Chocolate and candy bar'),
-            ('Granola Bar', 2.25, 3, 12, 1.30, 8, 'Healthy and nutritious granola bar'),
-            ('Cookies (pack of 6)', 2.50, 8, 8, 1.50, 5, 'Soft and chewy cookies'),
-            ('Fruit Snack Pack', 1.75, 5, 10, 1.00, 8, 'Assortment of dried fruits and nuts'),
+        # Household
+        {'item_name': 'Batteries (AA, pack of 4)', 'price': 4.00, 'units_sold': 1, 'units_left': 5, 'cost_price': 2.50, 'reorder_point': 3, 'description': 'Pack of 4 AA batteries'},
+        {'item_name': 'Light Bulbs (LED, 2-pack)', 'price': 6.00, 'units_sold': 3, 'units_left': 3, 'cost_price': 4.00, 'reorder_point': 2, 'description': 'Energy-efficient LED light bulbs'},
+        {'item_name': 'Trash Bags (small, 10-pack)', 'price': 3.00, 'units_sold': 5, 'units_left': 10, 'cost_price': 2.00, 'reorder_point': 5, 'description': 'Small trash bags for everyday use'},
+        {'item_name': 'Paper Towels (single roll)', 'price': 2.50, 'units_sold': 3, 'units_left': 8, 'cost_price': 1.50, 'reorder_point': 5, 'description': 'Single roll of paper towels'},
+        {'item_name': 'Multi-Surface Cleaner', 'price': 4.50, 'units_sold': 2, 'units_left': 5, 'cost_price': 3.00, 'reorder_point': 3, 'description': 'All-purpose cleaning spray'},
 
-            -- Personal Care
-            ('Toothpaste', 3.50, 1, 9, 2.00, 5, 'Minty toothpaste for oral hygiene'),
-            ('Hand Sanitizer (small)', 2.00, 2, 13, 1.20, 8, 'Small sanitizer bottle for on-the-go'),
-            ('Pain Relievers (pack)', 5.00, 1, 5, 3.00, 3, 'Over-the-counter pain relief medication'),
-            ('Bandages (box)', 3.00, 0, 10, 2.00, 5, 'Box of adhesive bandages for minor cuts'),
-            ('Sunscreen (small)', 5.50, 6, 5, 3.50, 3, 'Small bottle of sunscreen for sun protection'),
-
-            -- Household
-            ('Batteries (AA, pack of 4)', 4.00, 1, 5, 2.50, 3, 'Pack of 4 AA batteries'),
-            ('Light Bulbs (LED, 2-pack)', 6.00, 3, 3, 4.00, 2, 'Energy-efficient LED light bulbs'),
-            ('Trash Bags (small, 10-pack)', 3.00, 5, 10, 2.00, 5, 'Small trash bags for everyday use'),
-            ('Paper Towels (single roll)', 2.50, 3, 8, 1.50, 5, 'Single roll of paper towels'),
-            ('Multi-Surface Cleaner', 4.50, 2, 5, 3.00, 3, 'All-purpose cleaning spray'),
-
-            -- Others
-            ('Lottery Tickets', 2.00, 17, 20, 1.50, 10, 'Assorted lottery tickets'),
-            ('Newspaper', 1.50, 22, 20, 1.00, 5, 'Daily newspaper')
-        """
-    )
-    conn.commit()
-
-
-def load_data(conn):
-    """Loads the inventory data from the database."""
-    cursor = conn.cursor()
+        # Others
+        {'item_name': 'Lottery Tickets', 'price': 2.00, 'units_sold': 17, 'units_left': 20, 'cost_price': 1.50, 'reorder_point': 10, 'description': 'Assorted lottery tickets'},
+        {'item_name': 'Newspaper', 'price': 1.50, 'units_sold': 22, 'units_left': 20, 'cost_price': 1.00, 'reorder_point': 5, 'description': 'Daily newspaper'}
+    ]
 
     try:
-        cursor.execute("SELECT * FROM inventory")
-        data = cursor.fetchall()
-    except:
+        # conn.client (Supabase Python Client) を使って挿入
+        conn.client.table("inventory").insert(data_to_insert).execute()
+    except Exception as e:
+        st.error(f"Error initializing data: {e}")
+        st.stop()
+
+
+def load_data(conn: SupabaseConnection):
+    """Loads the inventory data from the database."""
+    
+    try:
+        # conn.query() を使用 (SELECT * FROM inventory)
+        # ttl=0 を設定し、キャッシュを無効にして常に最新データを取得
+        response = conn.query("*", table="inventory", ttl=0).execute()
+        
+        if not response.data:
+            return pd.DataFrame() # 空の DataFrame を返す
+
+        df = pd.DataFrame(response.data)
+        return df
+
+    except Exception as e:
+        # (例: "relation public.inventory does not exist" など)
+        st.error(f"Error loading data: {e}")
+        st.error("Have you created the 'inventory' table in your Supabase SQL Editor? (See instructions in the code)")
         return None
 
-    df = pd.DataFrame(
-        data,
-        columns=[
-            "id",
-            "item_name",
-            "price",
-            "units_sold",
-            "units_left",
-            "cost_price",
-            "reorder_point",
-            "description",
-        ],
-    )
 
-    return df
-
-
-def update_data(conn, df, changes):
+def update_data(conn: SupabaseConnection, df: pd.DataFrame, changes: dict):
     """Updates the inventory data in the database."""
-    cursor = conn.cursor()
+    
+    # conn.client (Supabase Python Client) を使用
+    try:
+        if changes["edited_rows"]:
+            deltas = st.session_state.inventory_table["edited_rows"]
+            for i, delta in deltas.items():
+                row_dict = df.iloc[i].to_dict()
+                row_id = int(row_dict["id"])
+                
+                # delta には変更されたカラムのみ含まれる
+                conn.client.table("inventory").update(delta).eq("id", row_id).execute()
 
-    if changes["edited_rows"]:
-        deltas = st.session_state.inventory_table["edited_rows"]
-        rows = []
+        if changes["added_rows"]:
+            rows_to_add = []
+            for row in changes["added_rows"]:
+                # 'id' はDBで自動生成されるため、辞書から削除 (または None のままにする)
+                row.pop('id', None) 
+                # defaultdict は元のコードのままで動作するはず
+                rows_to_add.append(defaultdict(lambda: None, row))
+            
+            if rows_to_add:
+                conn.client.table("inventory").insert(rows_to_add).execute()
 
-        for i, delta in deltas.items():
-            row_dict = df.iloc[i].to_dict()
-            row_dict.update(delta)
-            rows.append(row_dict)
+        if changes["deleted_rows"]:
+            for i in changes["deleted_rows"]:
+                row_id = int(df.loc[i, "id"])
+                conn.client.table("inventory").delete().eq("id", row_id).execute()
+        
+        st.toast("Changes committed successfully!")
 
-        cursor.executemany(
-            """
-            UPDATE inventory
-            SET
-                item_name = :item_name,
-                price = :price,
-                units_sold = :units_sold,
-                units_left = :units_left,
-                cost_price = :cost_price,
-                reorder_point = :reorder_point,
-                description = :description
-            WHERE id = :id
-            """,
-            rows,
-        )
-
-    if changes["added_rows"]:
-        cursor.executemany(
-            """
-            INSERT INTO inventory
-                (id, item_name, price, units_sold, units_left, cost_price, reorder_point, description)
-            VALUES
-                (:id, :item_name, :price, :units_sold, :units_left, :cost_price, :reorder_point, :description)
-            """,
-            (defaultdict(lambda: None, row) for row in changes["added_rows"]),
-        )
-
-    if changes["deleted_rows"]:
-        cursor.executemany(
-            "DELETE FROM inventory WHERE id = :id",
-            ({"id": int(df.loc[i, "id"])} for i in changes["deleted_rows"]),
-        )
-
-    conn.commit()
+    except Exception as e:
+        st.error(f"Error committing changes: {e}")
 
 
 # -----------------------------------------------------------------------------
@@ -184,16 +144,34 @@ st.info(
     """
 )
 
-# Connect to database and create table if needed
-conn, db_was_just_created = connect_db()
+# Connect to database (Supabase) using secrets
+# conn, db_was_just_created = connect_db() <- 変更
+try:
+    conn = st.connection("supabase", type=SupabaseConnection)
+except Exception as e:
+    st.error(f"Error connecting to Supabase. Check your secrets: {e}")
+    st.stop()
 
-# Initialize data.
-if db_was_just_created:
-    initialize_data(conn)
-    st.toast("Database initialized with some sample data.")
 
 # Load data from database
 df = load_data(conn)
+
+# df が None (ロード失敗) の場合は停止
+if df is None:
+    st.stop()
+
+# Initialize data (if table is empty)
+# if db_was_just_created: <- 変更
+if df.empty:
+    st.warning("Inventory table is empty. Initializing with sample data.")
+    initialize_data(conn)
+    # データを再ロード
+    df = load_data(conn)
+    if df is None: # 再ロード失敗
+        st.error("Failed to load data after initialization.")
+        st.stop()
+    st.rerun() # データを反映するために再実行
+
 
 # Display data with editable table
 edited_df = st.data_editor(
@@ -204,6 +182,8 @@ edited_df = st.data_editor(
         # Show dollar sign before price columns.
         "price": st.column_config.NumberColumn(format="$%.2f"),
         "cost_price": st.column_config.NumberColumn(format="$%.2f"),
+        # 'id' カラムを非表示にする (オプション)
+        # "id": None, 
     },
     key="inventory_table",
 )
@@ -230,43 +210,47 @@ st.button(
 
 st.subheader("Units left", divider="red")
 
-need_to_reorder = df[df["units_left"] < df["reorder_point"]].loc[:, "item_name"]
+# df が空の場合の処理を追加
+if not df.empty:
+    need_to_reorder = df[df["units_left"] < df["reorder_point"]].loc[:, "item_name"]
 
-if len(need_to_reorder) > 0:
-    items = "\n".join(f"* {name}" for name in need_to_reorder)
+    if len(need_to_reorder) > 0:
+        items = "\n".join(f"* {name}" for name in need_to_reorder)
 
-    st.error(f"We're running dangerously low on the items below:\n {items}")
+        st.error(f"We're running dangerously low on the items below:\n {items}")
 
-""
-""
+    ""
+    ""
 
-st.altair_chart(
-    # Layer 1: Bar chart.
-    alt.Chart(df)
-    .mark_bar(
-        orient="horizontal",
+    st.altair_chart(
+        # Layer 1: Bar chart.
+        alt.Chart(df)
+        .mark_bar(
+            orient="horizontal",
+        )
+        .encode(
+            x="units_left",
+            y="item_name",
+        )
+        # Layer 2: Chart showing the reorder point.
+        + alt.Chart(df)
+        .mark_point(
+            shape="diamond",
+            filled=True,
+            size=50,
+            color="salmon",
+            opacity=1,
+        )
+        .encode(
+            x="reorder_point",
+            y="item_name",
+        ),
+        use_container_width=True,
     )
-    .encode(
-        x="units_left",
-        y="item_name",
-    )
-    # Layer 2: Chart showing the reorder point.
-    + alt.Chart(df)
-    .mark_point(
-        shape="diamond",
-        filled=True,
-        size=50,
-        color="salmon",
-        opacity=1,
-    )
-    .encode(
-        x="reorder_point",
-        y="item_name",
-    ),
-    use_container_width=True,
-)
 
-st.caption("NOTE: The :diamonds: location shows the reorder point.")
+    st.caption("NOTE: The :diamonds: location shows the reorder point.")
+else:
+    st.warning("No data to display charts.")
 
 ""
 ""
@@ -279,12 +263,15 @@ st.subheader("Best sellers", divider="orange")
 ""
 ""
 
-st.altair_chart(
-    alt.Chart(df)
-    .mark_bar(orient="horizontal")
-    .encode(
-        x="units_sold",
-        y=alt.Y("item_name").sort("-x"),
-    ),
-    use_container_width=True,
-)
+if not df.empty:
+    st.altair_chart(
+        alt.Chart(df)
+        .mark_bar(orient="horizontal")
+        .encode(
+            x="units_sold",
+            y=alt.Y("item_name").sort("-x"),
+        ),
+        use_container_width=True,
+    )
+else:
+    st.warning("No data to display charts.")
