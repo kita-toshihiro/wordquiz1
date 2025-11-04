@@ -98,9 +98,9 @@ def load_data(conn):
         ]
     
     try:
-        # st-supabase-connection の query メソッドを使用
+        # st-supabase-connection の 'query' ではなく 'select' メソッドを使用
         # idでソートして一貫した順序を保証
-        result = conn.query("*", table="inventory", order="id")
+        result = conn.select("*", table="inventory", order="id") # <-- 修正点
         data = result.data
     except Exception as e:
         # 潜在的なエラー（テーブルが見つからないなど）をキャッチ
