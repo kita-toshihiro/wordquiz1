@@ -1,12 +1,11 @@
 from collections import defaultdict
-from pathlib import Path
-# import sqlite3  <- 削除
-from st_supabase_connection import SupabaseConnection # <- 追加
+# from pathlib import Path  <- 不要
+# import sqlite3           <- 不要
 
 import streamlit as st
 import altair as alt
 import pandas as pd
-
+from st_supabase_connection import SupabaseConnection # 追加
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
@@ -18,15 +17,30 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
 
-# connect_db() は st.connection に置き換えるため不要
-# def connect_db(): ...
+# connect_db() 関数は st.connection を使うため不要
 
-def initialize_data(conn: SupabaseConnection):
-    """Initializes the inventory table with some data."""
+
+def initialize_data(conn):
+    """
+    Initializes the inventory table with some data.
+    Assumes the 'inventory' table *already exists* in Supabase.
+    """
     
-    # CREATE TABLE は Supabase ダッシュボードで実行するため、ここでは実行しない
-    
-    # Supabase Python client (conn.client) を使ってデータを挿入
+    #
+    # 注：CREATE TABLEコマンドは Supabase SQL エディタで手動実行する必要があります:
+    #
+    # CREATE TABLE IF NOT EXISTS inventory (
+    #     id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    #     item_name TEXT,
+    #     price REAL,
+    #     units_sold INTEGER,
+    #     units_left INTEGER,
+    #     cost_price REAL,
+    #     reorder_point INTEGER,
+    #     description TEXT
+    # );
+    #
+
     data_to_insert = [
         # Beverages
         {'item_name': 'Bottled Water (500ml)', 'price': 1.50, 'units_sold': 115, 'units_left': 15, 'cost_price': 0.80, 'reorder_point': 16, 'description': 'Hydrating bottled water'},
@@ -62,62 +76,91 @@ def initialize_data(conn: SupabaseConnection):
     ]
 
     try:
-        # conn.client (Supabase Python Client) を使って挿入
-        conn.client.table("inventory").insert(data_to_insert).execute()
+        # st-supabase-connection の insert メソッドを使用
+        conn.insert(table="inventory", data=data_to_insert)
     except Exception as e:
         st.error(f"Error initializing data: {e}")
-        st.stop()
+        st.error("Please ensure the 'inventory' table exists and matches the required schema.")
 
 
-def load_data(conn: SupabaseConnection):
+def load_data(conn):
     """Loads the inventory data from the database."""
     
+    df_columns = [
+            "id",
+            "item_name",
+            "price",
+            "units_sold",
+            "units_left",
+            "cost_price",
+            "reorder_point",
+            "description",
+        ]
+    
     try:
-        # 修正: conn.query() の代わりに conn.client.table().select() を使用
-        response = conn.client.table("inventory").select("*").execute()
-        
-        if not response.data:
-            return pd.DataFrame() # 空の DataFrame を返す
-
-        df = pd.DataFrame(response.data)
-        return df
-
+        # st-supabase-connection の query メソッドを使用
+        # idでソートして一貫した順序を保証
+        result = conn.query("*", table="inventory", order="id")
+        data = result.data
     except Exception as e:
-        # (例: "relation public.inventory does not exist" など)
+        # 潜在的なエラー（テーブルが見つからないなど）をキャッチ
         st.error(f"Error loading data: {e}")
-        st.error("Have you created the 'inventory' table in your Supabase SQL Editor? (See instructions in the code)")
+        st.warning("Ensure the 'inventory' table exists in your Supabase project.")
         return None
 
+    if not data:
+        # データがないがテーブルは存在する場合、空のDataFrameを返す
+        return pd.DataFrame(columns=df_columns)
 
-def update_data(conn: SupabaseConnection, df: pd.DataFrame, changes: dict):
+    df = pd.DataFrame(
+        data,
+        columns=df_columns,
+    )
+
+    return df
+
+
+def update_data(conn, df, changes):
     """Updates the inventory data in the database."""
-    
-    # conn.client (Supabase Python Client) を使用
     try:
         if changes["edited_rows"]:
             deltas = st.session_state.inventory_table["edited_rows"]
+            
             for i, delta in deltas.items():
                 row_dict = df.iloc[i].to_dict()
-                row_id = int(row_dict["id"])
+                row_dict.update(delta)
                 
-                # delta には変更されたカラムのみ含まれる
-                conn.client.table("inventory").update(delta).eq("id", row_id).execute()
+                # id をペイロードから削除
+                row_id = row_dict.pop("id") 
+                
+                # st-supabase-connection の update は matching_columns を使用 (デフォルト 'id')
+                conn.update(
+                    table="inventory", 
+                    data=row_dict, 
+                    matching_columns={"id": row_id}
+                )
 
         if changes["added_rows"]:
-            rows_to_add = []
-            for row in changes["added_rows"]:
-                # 'id' はDBで自動生成されるため、辞書から削除 (または None のままにする)
-                row.pop('id', None) 
-                # defaultdict は元のコードのままで動作するはず
-                rows_to_add.append(defaultdict(lambda: None, row))
+            # 挿入用の行を準備
+            rows_to_insert = [
+                defaultdict(lambda: None, row) for row in changes["added_rows"]
+            ]
             
-            if rows_to_add:
-                conn.client.table("inventory").insert(rows_to_add).execute()
+            # 'id' が存在する場合は削除 (Supabaseが生成するため)
+            for row in rows_to_insert:
+                row.pop("id", None) 
+
+            conn.insert(table="inventory", data=rows_to_insert)
 
         if changes["deleted_rows"]:
             for i in changes["deleted_rows"]:
+                # 削除する行の実際の 'id' を取得
                 row_id = int(df.loc[i, "id"])
-                conn.client.table("inventory").delete().eq("id", row_id).execute()
+                
+                conn.delete(
+                    table="inventory",
+                    matching_columns={"id": row_id}
+                )
         
         st.toast("Changes committed successfully!")
 
@@ -143,34 +186,26 @@ st.info(
     """
 )
 
-# Connect to database (Supabase) using secrets
-# conn, db_was_just_created = connect_db() <- 変更
-try:
-    conn = st.connection("supabase", type=SupabaseConnection)
-except Exception as e:
-    st.error(f"Error connecting to Supabase. Check your secrets: {e}")
-    st.stop()
-
+# Connect to database
+# secrets.toml (connections.supabase) を自動的に使用
+conn = st.connection("supabase", type=SupabaseConnection)
 
 # Load data from database
 df = load_data(conn)
 
-# df が None (ロード失敗) の場合は停止
-if df is None:
-    st.stop()
-
-# Initialize data (if table is empty)
-# if db_was_just_created: <- 変更
-if df.empty:
-    st.warning("Inventory table is empty. Initializing with sample data.")
+# テーブルが空の場合にデータを初期化
+data_loaded_successfully = df is not None
+if data_loaded_successfully and df.empty:
     initialize_data(conn)
-    # データを再ロード
+    st.toast("Database initialized with some sample data.")
+    # 初期化後にデータを再読み込み
     df = load_data(conn)
-    if df is None: # 再ロード失敗
-        st.error("Failed to load data after initialization.")
-        st.stop()
-    st.rerun() # データを反映するために再実行
 
+# 読み込みに失敗した場合 (テーブルが存在しないなど), df は None になる
+if df is None:
+    st.error("Failed to load data. Please ensure the 'inventory' table exists in Supabase.")
+    st.info("You might need to run the CREATE TABLE script in the Supabase SQL Editor (see code comments in initialize_data).")
+    st.stop() # テーブルが存在しない場合は実行を停止
 
 # Display data with editable table
 edited_df = st.data_editor(
@@ -181,8 +216,6 @@ edited_df = st.data_editor(
         # Show dollar sign before price columns.
         "price": st.column_config.NumberColumn(format="$%.2f"),
         "cost_price": st.column_config.NumberColumn(format="$%.2f"),
-        # 'id' カラムを非表示にする (オプション)
-        # "id": None, 
     },
     key="inventory_table",
 )
@@ -209,47 +242,43 @@ st.button(
 
 st.subheader("Units left", divider="red")
 
-# df が空の場合の処理を追加
-if not df.empty:
-    need_to_reorder = df[df["units_left"] < df["reorder_point"]].loc[:, "item_name"]
+need_to_reorder = df[df["units_left"] < df["reorder_point"]].loc[:, "item_name"]
 
-    if len(need_to_reorder) > 0:
-        items = "\n".join(f"* {name}" for name in need_to_reorder)
+if len(need_to_reorder) > 0:
+    items = "\n".join(f"* {name}" for name in need_to_reorder)
 
-        st.error(f"We're running dangerously low on the items below:\n {items}")
+    st.error(f"We're running dangerously low on the items below:\n {items}")
 
-    ""
-    ""
+""
+""
 
-    st.altair_chart(
-        # Layer 1: Bar chart.
-        alt.Chart(df)
-        .mark_bar(
-            orient="horizontal",
-        )
-        .encode(
-            x="units_left",
-            y="item_name",
-        )
-        # Layer 2: Chart showing the reorder point.
-        + alt.Chart(df)
-        .mark_point(
-            shape="diamond",
-            filled=True,
-            size=50,
-            color="salmon",
-            opacity=1,
-        )
-        .encode(
-            x="reorder_point",
-            y="item_name",
-        ),
-        use_container_width=True,
+st.altair_chart(
+    # Layer 1: Bar chart.
+    alt.Chart(df)
+    .mark_bar(
+        orient="horizontal",
     )
+    .encode(
+        x="units_left",
+        y="item_name",
+    )
+    # Layer 2: Chart showing the reorder point.
+    + alt.Chart(df)
+    .mark_point(
+        shape="diamond",
+        filled=True,
+        size=50,
+        color="salmon",
+        opacity=1,
+    )
+    .encode(
+        x="reorder_point",
+        y="item_name",
+    ),
+    use_container_width=True,
+)
 
-    st.caption("NOTE: The :diamonds: location shows the reorder point.")
-else:
-    st.warning("No data to display charts.")
+st.caption("NOTE: The :diamonds: location shows the reorder point.")
 
 ""
 ""
@@ -262,15 +291,12 @@ st.subheader("Best sellers", divider="orange")
 ""
 ""
 
-if not df.empty:
-    st.altair_chart(
-        alt.Chart(df)
-        .mark_bar(orient="horizontal")
-        .encode(
-            x="units_sold",
-            y=alt.Y("item_name").sort("-x"),
-        ),
-        use_container_width=True,
-    )
-else:
-    st.warning("No data to display charts.")
+st.altair_chart(
+    alt.Chart(df)
+    .mark_bar(orient="horizontal")
+    .encode(
+        x="units_sold",
+        y=alt.Y("item_name").sort("-x"),
+    ),
+    use_container_width=True,
+)
