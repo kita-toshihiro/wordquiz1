@@ -128,3 +128,30 @@ elif menu == "学習記録":
         st.write("まだ記録がありません。クイズを解いてみましょう！")
     else:
         st.table(history_df.head(15))
+# --- (既存の st.sidebar.radio の下に追加) ---
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("💾 データ管理")
+
+# 1. DBダウンロード機能
+with open("vocab_app.db", "rb") as f:
+    st.sidebar.download_button(
+        label="データベースを保存",
+        data=f,
+        file_name="vocab_app.db",
+        mime="application/x-sqlite3",
+        help="現在の学習記録をファイルとしてダウンロードします。"
+    )
+
+# 2. DBアップロード機能
+uploaded_file = st.sidebar.file_uploader("DBを復元", type="db", help="保存した vocab_app.db を選択してください。")
+
+if uploaded_file is not None:
+    if st.sidebar.button("データを上書き復元"):
+        # 一時的に現在の接続を閉じる必要があるため、connをクローズ
+        conn.close()
+        # アップロードされたファイルで上書き
+        with open("vocab_app.db", "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        st.sidebar.success("復元が完了しました！再起動します...")
+        st.rerun()
