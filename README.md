@@ -3,7 +3,7 @@
 
 Streamlitを利用した、効率的な英単語学習のためのWebアプリケーションです。TOEIC 600点レベルの英単語を4択クイズ形式で学び、苦手な単語を重点的に復習することができます。
 
-<img src="./wordquiz1.png" width=80%>
+<img src="./wordquiz1.png" width=90% border=1>
 ---
 
 ## URL
